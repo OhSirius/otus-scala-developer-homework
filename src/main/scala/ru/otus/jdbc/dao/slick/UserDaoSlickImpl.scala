@@ -44,12 +44,17 @@ class UserDaoSlickImpl(db: Database)(implicit ec: ExecutionContext) {
             .update((user.firstName, user.lastName, user.age))
 
         val deleteRoles = usersToRoles.filter(_.usersId === userId).delete
-        val insertRoles = usersToRoles ++= user.roles.map(userId -> _)
+        def insertRoles(userId:UUID) = usersToRoles ++= user.roles.map(userId -> _)
+        val createUser = users returning users.map(_.id) += UserRow.fromUser(user.copy(id = None))
 
-        val action = updateUser >> deleteRoles >> insertRoles >> DBIO.successful(())
+        //val action = updateUser >> deleteRoles >> insertRoles >> DBIO.successful(())
+        val action = for{
+            count <- updateUser
+            _     <- if (count <= 0) createUser.flatMap(insertRoles(_)) else deleteRoles >> insertRoles(userId)
+        } yield ()
 
         db.run(action.transactionally.withTransactionIsolation(TransactionIsolation.Serializable))
-      case None => Future.successful(())
+      case None => createUser(user).map(_=>())
     }
   }
 
