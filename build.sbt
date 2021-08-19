@@ -4,6 +4,7 @@ version := "0.1"
 
 scalaVersion := "2.13.4"
 
+scalacOptions += "-deprecation"
 
 libraryDependencies ++= Seq(
     "org.postgresql"          % "postgresql"                            % "42.2.2"  % Test,

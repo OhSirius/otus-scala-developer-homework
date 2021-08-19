@@ -5,6 +5,7 @@ package ru.otus.jdbc.dao.slick
 import ru.otus.jdbc.model.{Role, User}
 import slick.dbio.Effect
 import slick.jdbc.PostgresProfile.api._
+import slick.jdbc.TransactionIsolation
 import slick.sql.FixedSqlAction
 
 import java.util.UUID
@@ -25,7 +26,14 @@ class UserDaoSlickImpl(db: Database)(implicit ec: ExecutionContext) {
     db.run(res)
   }
 
-  def createUser(user: User): Future[User] = ???
+  def createUser(user: User): Future[User] = {
+    val action = for {
+      id <- ((users returning users.map(_.id)) += UserRow.fromUser(user.copy(id = None)))
+      _ <- usersToRoles ++= user.roles.map(id -> _)
+    } yield user.copy(id = Some(id))
+
+    db.run(action.transactionally)
+  }
 
   def updateUser(user: User): Future[Unit] = {
     user.id match {
@@ -36,24 +44,43 @@ class UserDaoSlickImpl(db: Database)(implicit ec: ExecutionContext) {
             .update((user.firstName, user.lastName, user.age))
 
         val deleteRoles = usersToRoles.filter(_.usersId === userId).delete
-        val insertRoles = usersToRoles ++= user.roles.map(userId -> _)
+        def insertRoles(userId:UUID) = usersToRoles ++= user.roles.map(userId -> _)
+        val createUser = users returning users.map(_.id) += UserRow.fromUser(user.copy(id = None))
 
-        val action = updateUser >> deleteRoles >> insertRoles >> DBIO.successful(())
+        //val action = updateUser >> deleteRoles >> insertRoles >> DBIO.successful(())
+        val action = for{
+            count <- updateUser
+            _     <- if (count <= 0) createUser.flatMap(insertRoles(_)) else deleteRoles >> insertRoles(userId)
+        } yield ()
 
-        db.run(action)
-      case None => Future.successful(())
+        db.run(action.transactionally.withTransactionIsolation(TransactionIsolation.Serializable))
+      case None => createUser(user).map(_=>())
     }
   }
 
-  def deleteUser(userId: UUID): Future[Option[User]] = ???
+  def deleteUser(userId: UUID): Future[Option[User]] = {
+    for {
+      user <- getUser(userId)
+      action = usersToRoles.filter(_.usersId === userId).delete >> users.filter(_.id === userId).delete
+      _ <- db.run(action.transactionally) if (user.nonEmpty)
+    } yield user
+  }
 
-  private def findByCondition(condition: Users => Rep[Boolean]): Future[Vector[User]] = ???
+  private def findByCondition(condition: Users => Rep[Boolean]): Future[Vector[User]] = {
+    val findAction = users.filter(condition(_))
+    val action = for {
+      users <- findAction.result
+      roles <- usersToRoles.filter(_.usersId in findAction.map(_.id)).result
+    } yield users.map(u => u.toUser(roles.collect({ case (id, r) if id == u.id.get => r }).toSet)).toVector
 
-  def findByLastName(lastName: String): Future[Seq[User]] = ???
+    db.run(action)
+  }
 
-  def findAll(): Future[Seq[User]] = ???
+  def findByLastName(lastName: String): Future[Seq[User]] = findByCondition(_.lastName === lastName)
 
-  private[slick] def deleteAll(): Future[Unit] = ???
+  def findAll(): Future[Seq[User]] = findByCondition(_ => true)
+
+  private[jdbc] def deleteAll(): Future[Unit] = db.run((usersToRoles.delete >> users.delete >> DBIO.successful(())).transactionally)
 }
 
 object UserDaoSlickImpl {

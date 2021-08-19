@@ -3,3 +3,8 @@
 /target/
 /target/scala-2.12/classes/
 /target/scala-2.12/test-classes/
+
+# Scala-IDE specific
+.scala_dependencies
+.worksheet
+.idea

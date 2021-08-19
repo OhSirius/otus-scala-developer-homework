@@ -5,6 +5,7 @@ import com.dimafeng.testcontainers.{ForAllTestContainer, PostgreSQLContainer}
 import org.flywaydb.core.Flyway
 import org.scalacheck.Arbitrary._
 import org.scalacheck.{Arbitrary, Gen}
+import org.scalatest.BeforeAndAfterEach
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.freespec.AnyFreeSpec
 import org.scalatest.matchers.should.Matchers._
@@ -18,7 +19,7 @@ import java.util.UUID
 import scala.concurrent.ExecutionContext.Implicits.global
 
 class UserDaoSlickImplTest extends AnyFreeSpec
-  with ScalaCheckDrivenPropertyChecks with ScalaFutures  with ForAllTestContainer {
+  with ScalaCheckDrivenPropertyChecks with BeforeAndAfterEach with ScalaFutures  with ForAllTestContainer {
   override val container: PostgreSQLContainer = PostgreSQLContainer()
 
   var db: Database = _
@@ -32,6 +33,12 @@ class UserDaoSlickImplTest extends AnyFreeSpec
       .migrate()
 
     db = Database.forURL(container.jdbcUrl, container.username, container.password)
+  }
+
+  override def beforeEach(): Unit = {
+    super.beforeEach()
+    val dao = new UserDaoSlickImpl(db)
+    dao.deleteAll().futureValue
   }
 
   implicit val genRole: Gen[Role] = Gen.oneOf(Role.Admin, Role.Manager, Role.Reader)
@@ -55,6 +62,7 @@ class UserDaoSlickImplTest extends AnyFreeSpec
       "create and get unknown user" in {
         forAll { (users: Seq[User], userId: UUID) =>
           val dao = new UserDaoSlickImpl(db)
+          dao.deleteAll().futureValue
           users .foreach(dao.createUser(_).futureValue)
 
           dao.getUser(userId).futureValue shouldBe None
@@ -67,11 +75,12 @@ class UserDaoSlickImplTest extends AnyFreeSpec
       "update known user - keep other users the same" in {
         forAll { (users: Seq[User], user1: User, user2: User) =>
           val dao = new UserDaoSlickImpl(db)
+          dao.deleteAll().futureValue
           val createdUsers = users.map(dao.createUser(_).futureValue)
           val createdUser = dao.createUser(user1).futureValue
           val toUpdate = user2.copy(id = createdUser.id)
 
-          dao.updateUser(toUpdate)
+          dao.updateUser(toUpdate).futureValue
 
           dao.getUser(toUpdate.id.get).futureValue shouldBe Some(toUpdate)
           createdUsers.foreach { u => dao.getUser(u.id.get).futureValue shouldBe Some(u)
@@ -83,6 +92,7 @@ class UserDaoSlickImplTest extends AnyFreeSpec
     "delete known user - keep other users the same" in {
       forAll { (users1: Seq[User], user1: User) =>
         val dao = new UserDaoSlickImpl(db)
+        dao.deleteAll().futureValue
         val createdUsers1 = users1.map(dao.createUser(_).futureValue)
         val createdUser = dao.createUser(user1).futureValue
 
@@ -98,6 +108,7 @@ class UserDaoSlickImplTest extends AnyFreeSpec
         "findByLastName" in {
           forAll { (users1: Seq[User], lastName: String, users2: Seq[User]) =>
             val dao               = new UserDaoSlickImpl(db)
+            dao.deleteAll().futureValue
             val withOtherLastName = users1.filterNot(_.lastName == lastName)
             val withLastName      = users2.map(_.copy(lastName = lastName))
 
@@ -111,6 +122,7 @@ class UserDaoSlickImplTest extends AnyFreeSpec
     "findAll" in {
       forAll { users: Seq[User] =>
         val dao = new UserDaoSlickImpl(db)
+        dao.deleteAll().futureValue
         val createdUsers = users.map(dao.createUser(_).futureValue)
 
         dao.findAll().futureValue.toSet shouldBe createdUsers.toSet
