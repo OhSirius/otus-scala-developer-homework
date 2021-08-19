@@ -22,7 +22,7 @@ class ScalikeJDBCTest  extends PgTestContainer {
           Person(
             name = rs.string("NAME"),
             passw = rs.string("PASSW")
-          )).list.apply()
+          )).list().apply()
     }
 
     assert(userNames.head.name == "ivan")
@@ -60,7 +60,7 @@ class ScalikeJDBCTest  extends PgTestContainer {
           }
       )
         //      .map(Person1(pp)).single.apply().get
-        .map(Person(pp)).single.apply().get
+        .map(Person(pp)).single().apply().get
 
       assert(ivan.name == "ivan")
       assert(ivan.passw == "123123")
